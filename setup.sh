@@ -23,20 +23,18 @@ docker exec banking_app php artisan key:generate
 
 # 6. FIX PERMISSIONS
 echo "Setting folder permissions..."
-# Ensure the specific directory exists first
-docker exec banking_app mkdir -p storage/api-docs
-# Grant ownership of everything in storage to the web server
-docker exec banking_app chown -R www-data:www-data storage bootstrap/cache
-# Ensure it is writable
-docker exec banking_app chmod -R 775 storage bootstrap/cache
+docker exec -u root banking_app bash -c "
+    mkdir -p storage/api-docs &&
+    chown -R www-data:www-data storage bootstrap/cache &&
+    chmod -R 775 storage bootstrap/cache
+"
 
 # 7. Run Migrations
+echo "Waiting for database to stabilize..."
+sleep 5
 echo "Running database migrations..."
-docker exec banking_app php artisan migrate --force
+docker exec banking_app php artisan migrate
 
-# 8. Generate Swagger Documentation
-echo "Generating API documentation..."
-docker exec banking_app php artisan l5-swagger:generate
 
 echo "----------------------------------------------------"
 echo "Setup complete! API is running at http://localhost:8000"
