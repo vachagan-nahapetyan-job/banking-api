@@ -54,44 +54,46 @@ banking-api/
 git clone https://github.com/vachagan-nahapetyan-job/banking-api.git
 cd banking-api
 ```
- 
-### Step 2 — Copy environment file
+
+### Run the Automated Setup which will Copy environment file, Build and start Docker containers,Run composer install , Generate the App Key ,Run migrations & Generate Swagger docs.
 ```bash
-cp .env.example .env
-```
- 
-### Step 3 — Build and start Docker containers
-```bash
-docker-compose up -d --build
-```
- 
-This starts 3 containers:
-| Container       | Role            | Port |
-|----------------|-----------------|------|
-| `banking_app`  | PHP 8.3-fpm     | —    |
-| `banking_nginx`| Nginx web server| 8000 |
-| `banking_db`   | MySQL 8.0       | 3307 |
- 
-### Step 4 — Run composer install & migrations
-```bash
-docker-compose exec app composer install
+./setup.sh
 ```
 
-```bash
-docker exec banking_app php artisan migrate
+## 📖 Swagger UI 
 ```
+http://localhost:8000/api/documentation
+```
+ 
+Click **Authorize 🔓** → enter `Bearer your_token_here` → all protected endpoints work automatically.
+ 
+---
+ 
+## 🗄 Database Schema
+ 
+### `users`
+| Column     | Type           | Notes                     |
+|------------|----------------|---------------------------|
+| id         | bigint         | Primary key               |
+| email      | string         | Unique                    |
+| password   | string         | Hashed (bcrypt)           |
+| pin        | string         | Hashed (bcrypt)           |
+| balance    | decimal(15,2)  | Default: 999,999.00 USD   |
+| currency   | string         | Default: USD              |
+ 
+### `transactions`
+| Column        | Type           | Notes                  |
+|---------------|----------------|------------------------|
+| id            | bigint         | Primary key            |
+| user_id       | bigint         | Foreign key → users    |
+| type          | enum           | Only: withdraw         |
+| amount        | decimal(15,2)  | Requested amount       |
+| fee_amount    | decimal(15,2)  | 1% of amount           |
+| balance_after | decimal(15,2)  | Balance after withdraw |
+| created_at    | timestamp      |                        |
+ 
+---
 
- 
-### Step 5 — Generate Swagger docs
-```bash
-docker exec banking_app php artisan l5-swagger:generate
-```
- 
-### Step 6 — Verify everything works
-```bash
-curl http://localhost:8000
-```
- 
 ---
  
 ## 📡 API Endpoints
@@ -169,58 +171,3 @@ Authorization: Bearer your_token_here
  
 ---
  
-## 📖 Swagger UI
- 
-After running `php artisan l5-swagger:generate`, open:
-```
-http://localhost:8000/api/documentation
-```
- 
-Click **Authorize 🔓** → enter `Bearer your_token_here` → all protected endpoints work automatically.
- 
----
- 
-## 🗄 Database Schema
- 
-### `users`
-| Column     | Type           | Notes                     |
-|------------|----------------|---------------------------|
-| id         | bigint         | Primary key               |
-| email      | string         | Unique                    |
-| password   | string         | Hashed (bcrypt)           |
-| pin        | string         | Hashed (bcrypt)           |
-| balance    | decimal(15,2)  | Default: 999,999.00 USD   |
-| currency   | string         | Default: USD              |
- 
-### `transactions`
-| Column        | Type           | Notes                  |
-|---------------|----------------|------------------------|
-| id            | bigint         | Primary key            |
-| user_id       | bigint         | Foreign key → users    |
-| type          | enum           | Only: withdraw         |
-| amount        | decimal(15,2)  | Requested amount       |
-| fee_amount    | decimal(15,2)  | 1% of amount           |
-| balance_after | decimal(15,2)  | Balance after withdraw |
-| created_at    | timestamp      |                        |
- 
----
- 
-## 🧹 Useful Commands
- 
-```bash
-# Clear all caches
-docker exec banking_app php artisan config:clear
-docker exec banking_app php artisan cache:clear
-docker exec banking_app php artisan route:clear
- 
-# Re-run migrations fresh (⚠️ deletes all data)
-docker exec banking_app php artisan migrate:fresh
- 
-# Stop containers
-docker-compose down
- 
-# Stop and delete volumes (⚠️ deletes DB data)
-docker-compose down -v
-```
- 
----
