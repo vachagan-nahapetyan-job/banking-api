@@ -23,7 +23,11 @@ docker exec banking_app php artisan key:generate
 
 # 6. FIX PERMISSIONS
 echo "Setting folder permissions..."
+# Ensure the specific directory exists first
+docker exec banking_app mkdir -p storage/api-docs
+# Grant ownership of everything in storage to the web server
 docker exec banking_app chown -R www-data:www-data storage bootstrap/cache
+# Ensure it is writable
 docker exec banking_app chmod -R 775 storage bootstrap/cache
 
 # 7. Run Migrations
