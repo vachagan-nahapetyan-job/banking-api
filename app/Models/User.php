@@ -14,10 +14,23 @@ class User extends Authenticatable
     protected $fillable = [
         'email',
         'password',
+        'pin',
+        'balance',
+        'currency',
     ];
 
     protected $hidden = [
         'password',
+        'pin',
         'remember_token',
     ];
+
+    protected $casts = [
+        'balance' => 'decimal:2',
+    ];
+
+    public function transactions()
+    {
+        return $this->hasMany(Transaction::class);
+    }
 }
