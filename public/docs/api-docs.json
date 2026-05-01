@@ -12,6 +12,129 @@
         }
     ],
     "paths": {
+        "/api/auth/register": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Register a new user",
+                "operationId": "c7bb21a0d87049e161b8e4c9b0d909f2",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password",
+                                    "pin"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "user@example.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "minLength": 6,
+                                        "example": "secret123"
+                                    },
+                                    "pin": {
+                                        "description": "4-6 digit PIN",
+                                        "type": "string",
+                                        "example": "1234"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "User registered successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "token": {
+                                            "type": "string"
+                                        },
+                                        "balance": {
+                                            "type": "number",
+                                            "example": 999999
+                                        },
+                                        "currency": {
+                                            "type": "string",
+                                            "example": "USD"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation error"
+                    }
+                }
+            }
+        },
+        "/api/auth/login": {
+            "post": {
+                "tags": [
+                    "Auth"
+                ],
+                "summary": "Login and get authentication token",
+                "operationId": "dd51a484b7fa0f97c7680fdbde14cf5f",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "user@example.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "example": "secret123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Login successful",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "token": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid credentials"
+                    }
+                }
+            }
+        },
         "/api/atm/withdraw": {
             "post": {
                 "tags": [
@@ -240,129 +363,6 @@
                     }
                 ]
             }
-        },
-        "/api/auth/register": {
-            "post": {
-                "tags": [
-                    "Auth"
-                ],
-                "summary": "Register a new user",
-                "operationId": "c7bb21a0d87049e161b8e4c9b0d909f2",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "email",
-                                    "password",
-                                    "pin"
-                                ],
-                                "properties": {
-                                    "email": {
-                                        "type": "string",
-                                        "format": "email",
-                                        "example": "user@example.com"
-                                    },
-                                    "password": {
-                                        "type": "string",
-                                        "minLength": 6,
-                                        "example": "secret123"
-                                    },
-                                    "pin": {
-                                        "description": "4-6 digit PIN",
-                                        "type": "string",
-                                        "example": "1234"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "201": {
-                        "description": "User registered successfully",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "properties": {
-                                        "token": {
-                                            "type": "string"
-                                        },
-                                        "balance": {
-                                            "type": "number",
-                                            "example": 999999
-                                        },
-                                        "currency": {
-                                            "type": "string",
-                                            "example": "USD"
-                                        }
-                                    },
-                                    "type": "object"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation error"
-                    }
-                }
-            }
-        },
-        "/api/auth/login": {
-            "post": {
-                "tags": [
-                    "Auth"
-                ],
-                "summary": "Login and get authentication token",
-                "operationId": "dd51a484b7fa0f97c7680fdbde14cf5f",
-                "requestBody": {
-                    "required": true,
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "required": [
-                                    "email",
-                                    "password"
-                                ],
-                                "properties": {
-                                    "email": {
-                                        "type": "string",
-                                        "format": "email",
-                                        "example": "user@example.com"
-                                    },
-                                    "password": {
-                                        "type": "string",
-                                        "example": "secret123"
-                                    }
-                                },
-                                "type": "object"
-                            }
-                        }
-                    }
-                },
-                "responses": {
-                    "200": {
-                        "description": "Login successful",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "properties": {
-                                        "token": {
-                                            "type": "string"
-                                        }
-                                    },
-                                    "type": "object"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Invalid credentials"
-                    }
-                }
-            }
         }
     },
     "components": {
@@ -376,12 +376,12 @@
     },
     "tags": [
         {
-            "name": "ATM",
-            "description": "ATM"
-        },
-        {
             "name": "Auth",
             "description": "Auth"
+        },
+        {
+            "name": "ATM",
+            "description": "ATM"
         }
     ]
 }

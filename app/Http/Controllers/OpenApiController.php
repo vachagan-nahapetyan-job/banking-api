@@ -16,6 +16,16 @@ use OpenApi\Annotations as OA;
  *     description="Local development server"
  * )
  *
+ * @OA\Tag(
+ *     name="Auth",
+ *     description="Authentication and registration endpoints"
+ * )
+ *
+ * @OA\Tag(
+ *     name="ATM",
+ *     description="ATM banking operations (Withdraw, Balance, Transactions)"
+ * )
+ *
  * @OA\SecurityScheme(
  *     securityScheme="bearerAuth",
  *     type="http",
