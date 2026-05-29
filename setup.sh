@@ -20,6 +20,7 @@ docker exec banking_app composer install
 # 5. Generate App Key
 echo "Generating Laravel app key..."
 docker exec banking_app php artisan key:generate
+docker exec banking_app php artisan key:generate --env=testing
 
 # 6. FIX PERMISSIONS
 echo "Setting folder permissions..."
@@ -35,7 +36,15 @@ sleep 5
 echo "Running database migrations..."
 docker exec banking_app php artisan migrate
 
+# 8. Generate Swagger docs
+echo "Generating Swagger documentation..."
+docker exec banking_app php artisan l5-swagger:generate
+
+docker exec -u root banking_app chmod -R 775 storage/api-docs
+docker exec -u root banking_app chown -R www-data:www-data storage/api-docs
 
 echo "----------------------------------------------------"
-echo "Setup complete! API is running at http://localhost:8000"
-echo "Check Swagger at http://localhost:8000/api/documentation"
+echo "Setup complete!"
+echo "API is running at:      http://localhost:8000"
+echo "Swagger docs at:        http://localhost:8000/api/documentation"
+echo "----------------------------------------------------"
