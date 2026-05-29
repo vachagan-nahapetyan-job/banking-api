@@ -9,8 +9,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use OpenApi\Annotations as OA;
-
+use Illuminate\Support\Facades\Log;
+use App\Models\User;
+use Throwable;
 
 class AtmController extends Controller
 {
@@ -25,7 +26,8 @@ class AtmController extends Controller
      *         @OA\JsonContent(
      *             required={"amount","pin"},
      *             @OA\Property(property="amount", type="number", example=10000, description="Amount in USD, max 300000"),
-     *             @OA\Property(property="pin", type="string", example="1234", description="4-6 digit PIN")
+     *             @OA\Property(property="pin", type="string", example="1234", description="4-6 digit PIN"),
+     *             @OA\Property(property="idempotency_key", type="string", example="req_123456", description="Unique key to prevent duplicate processing")
      *         )
      *     ),
      *     @OA\Response(
@@ -35,56 +37,192 @@ class AtmController extends Controller
      *             @OA\Property(property="message", type="string", example="Withdrawal successful"),
      *             @OA\Property(property="amount", type="number", example=10000),
      *             @OA\Property(property="fee", type="number", example=100),
-     *             @OA\Property(property="balance_after", type="number", example=49000),
-     *             @OA\Property(property="currency", type="string", example="USD")
+     *             @OA\Property(property="balance_after", type="number", example=489899),
+     *             @OA\Property(property="currency", type="string", example="USD"),
+     *             @OA\Property(property="transaction_id", type="integer", example=12345)
      *         )
      *     ),
      *     @OA\Response(response=401, description="Unauthenticated or wrong PIN"),
      *     @OA\Response(response=403, description="Forbidden"),
      *     @OA\Response(response=409, description="Insufficient balance"),
-     *     @OA\Response(response=422, description="Validation error")
+     *     @OA\Response(response=422, description="Validation error"),
+     *     @OA\Response(response=429, description="Duplicate request detected"),
+     *     @OA\Response(response=503, description="Service temporarily unavailable")
      * )
      */
     public function withdraw(WithdrawRequest $request): JsonResponse
     {
         $user = $request->user();
 
-        if (! Hash::check($request->pin, $user->pin)) {
+        // Verify PIN
+        if (!Hash::check($request->pin, $user->pin)) {
+            Log::warning('Invalid PIN attempt', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'ip' => $request->ip()
+            ]);
             return response()->json(['message' => 'Invalid PIN'], 401);
         }
 
+        $config = config('atm');
         $amount = (float) $request->amount;
-        $fee    = round($amount * 0.01, 2);
-        $total  = $amount + $fee;
+        $fee = round($amount * $config['fee_percentage'], 2);
+        $total = $amount + $fee;
+        $idempotencyKey = $request->input('idempotency_key');
 
-        if ($user->balance < $total) {
-            return response()->json([
-                'message' => 'Insufficient balance',
-                'required' => $total,
-                'available_balance' => $user->balance,
-            ], 409);
+        $maxRetries = $config['max_retries'];
+        $retryDelay = $config['retry_delay'];
+
+        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+            try {
+                $result = DB::transaction(function () use ($user, $amount, $fee, $total, $idempotencyKey, $attempt) {
+                    $lockedUser = User::where('id', $user->id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (!$lockedUser) {
+                        throw new \Exception('User not found', 404);
+                    }
+
+                    // Check for duplicate request using idempotency key within transaction
+                    if ($idempotencyKey) {
+                        $existingTransaction = Transaction::where('idempotency_key', $idempotencyKey)
+                            ->where('user_id', $lockedUser->id)
+                            ->first();
+
+                        if ($existingTransaction) {
+                            Log::info('Duplicate request prevented', [
+                                'user_id' => $lockedUser->id,
+                                'idempotency_key' => $idempotencyKey,
+                                'transaction_id' => $existingTransaction->id
+                            ]);
+
+                            // Throw a custom exception that we can catch below to return 429
+                            throw new \Exception('Duplicate request detected', 429);
+                        }
+                    }
+
+                    if ($lockedUser->balance < $total) {
+                        throw new \Exception('Insufficient balance', 409);
+                    }
+
+                    $lockedUser->balance -= $total;
+                    $lockedUser->save();
+
+                    $transaction = Transaction::create([
+                        'user_id' => $lockedUser->id,
+                        'type' => 'withdraw',
+                        'amount' => $amount,
+                        'fee_amount' => $fee,
+                        'balance_after' => $lockedUser->balance,
+                        'idempotency_key' => $idempotencyKey,
+                        'metadata' => json_encode([
+                            'ip' => request()->ip(),
+                            'user_agent' => request()->userAgent(),
+                            'attempt' => $attempt
+                        ])
+                    ]);
+
+                    Log::info('Withdrawal successful', [
+                        'user_id' => $lockedUser->id,
+                        'email' => $lockedUser->email,
+                        'amount' => $amount,
+                        'fee' => $fee,
+                        'total_deducted' => $total,
+                        'balance_after' => $lockedUser->balance,
+                        'transaction_id' => $transaction->id
+                    ]);
+
+                    return [
+                        'transaction' => $transaction,
+                        'balance' => $lockedUser->balance
+                    ];
+                });
+
+                return response()->json([
+                    'message' => 'Withdrawal successful',
+                    'amount' => $amount,
+                    'fee' => $fee,
+                    'balance_after' => $result['balance'],
+                    'currency' => $user->currency,
+                    'transaction_id' => $result['transaction']->id,
+                ]);
+
+            } catch (Throwable $e) {
+                // Handle duplicate request detected (idempotency key)
+                if ($e->getMessage() === 'Duplicate request detected') {
+                    // Find the existing transaction to return its details
+                    $existingTransaction = Transaction::where('idempotency_key', $idempotencyKey)
+                        ->where('user_id', $user->id)
+                        ->first();
+
+                    if ($existingTransaction) {
+                        Log::info('Duplicate request prevented', [
+                            'user_id' => $user->id,
+                            'idempotency_key' => $idempotencyKey,
+                            'transaction_id' => $existingTransaction->id
+                        ]);
+
+                        return response()->json([
+                            'message' => 'Duplicate request detected',
+                            'transaction_id' => $existingTransaction->id,
+                            'amount' => $existingTransaction->amount,
+                            'fee' => $existingTransaction->fee_amount,
+                            'balance_after' => $existingTransaction->balance_after,
+                            'currency' => $user->currency,
+                        ], 429);
+                    }
+                }
+
+                if (str_contains($e->getMessage(), 'Deadlock') || str_contains($e->getMessage(), 'Lock wait timeout')) {
+                    if ($attempt < $maxRetries) {
+                        Log::warning('Deadlock detected, retrying', [
+                            'user_id' => $user->id,
+                            'attempt' => $attempt,
+                            'error' => $e->getMessage()
+                        ]);
+                        usleep($retryDelay * 1000 * $attempt);
+                        continue;
+                    }
+
+                    Log::error('Deadlock persisted after retries', [
+                        'user_id' => $user->id,
+                        'attempts' => $maxRetries
+                    ]);
+
+                    return response()->json([
+                        'message' => 'Transaction temporarily unavailable. Please try again.',
+                    ], 503);
+                }
+
+                if ($e->getMessage() === 'Insufficient balance') {
+                    return response()->json([
+                        'message' => 'Insufficient balance',
+                        'required' => $total,
+                        'available_balance' => $user->fresh()->balance,
+                        'currency' => $user->currency,
+                    ], 409);
+                }
+
+                if ($e->getCode() === 404) {
+                    return response()->json(['message' => 'User not found'], 404);
+                }
+
+                Log::error('Withdrawal failed unexpectedly', [
+                    'user_id' => $user->id,
+                    'amount' => $amount,
+                    'error' => $e->getMessage()
+                ]);
+
+                return response()->json([
+                    'message' => 'Transaction failed due to an internal error.',
+                ], 500);
+            }
         }
 
-        DB::transaction(function () use ($user, $amount, $fee, $total) {
-            $user->balance -= $total;
-            $user->save();
-
-            Transaction::create([
-                'user_id'       => $user->id,
-                'type'          => 'withdraw',
-                'amount'        => $amount,
-                'fee_amount'    => $fee,
-                'balance_after' => $user->balance,
-            ]);
-        });
-
         return response()->json([
-            'message'       => 'Withdrawal successful',
-            'amount'        => $amount,
-            'fee'           => $fee,
-            'balance_after' => $user->balance,
-            'currency'      => $user->currency,
-        ]);
+            'message' => 'Transaction failed after multiple retries',
+        ], 503);
     }
 
     /**
@@ -128,6 +266,13 @@ class AtmController extends Controller
      *         @OA\Schema(type="integer", example=1)
      *     ),
      *     @OA\Parameter(
+     *         name="per_page",
+     *         in="query",
+     *         description="Items per page (max 50)",
+     *         required=false,
+     *         @OA\Schema(type="integer", example=10)
+     *     ),
+     *     @OA\Parameter(
      *         name="date_from",
      *         in="query",
      *         description="Filter from date (YYYY-MM-DD)",
@@ -155,10 +300,8 @@ class AtmController extends Controller
      *                     @OA\Property(property="created_at", type="string", format="date-time")
      *                 )
      *             ),
-     *             @OA\Property(property="meta", type="object",
-     *                 @OA\Property(property="current_page", type="integer"),
-     *                 @OA\Property(property="last_page", type="integer")
-     *             )
+     *             @OA\Property(property="links", type="object"),
+     *             @OA\Property(property="meta", type="object")
      *         )
      *     ),
      *     @OA\Response(response=401, description="Unauthenticated")
@@ -169,7 +312,10 @@ class AtmController extends Controller
         $request->validate([
             'date_from' => ['nullable', 'date_format:Y-m-d'],
             'date_to'   => ['nullable', 'date_format:Y-m-d'],
+            'per_page'  => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
+
+        $perPage = $request->input('per_page', 10);
 
         $query = $request->user()
             ->transactions()
@@ -184,21 +330,8 @@ class AtmController extends Controller
             $query->whereDate('created_at', '<=', $request->date_to);
         }
 
-        $paginated = $query->paginate(10);
+        $transactions = $query->paginate($perPage);
 
-        return response()->json([
-            'data' => $paginated->map(fn($t) => [
-                'id' => $t->id,
-                'type' => $t->type,
-                'amount' => $t->amount,
-                'fee_amount' => $t->fee_amount,
-                'balance_after' => $t->balance_after,
-                'created_at' => $t->created_at->toIso8601String(),
-            ]),
-            'meta' => [
-                'current_page' => $paginated->currentPage(),
-                'last_page' => $paginated->lastPage(),
-            ],
-        ]);
+        return response()->json($transactions);
     }
 }
